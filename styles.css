@@ -5,7 +5,7 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-family: Arial, sans-serif;
     line-height: 1.6;
     min-height: 100vh;
     display: flex;
@@ -29,6 +29,7 @@ header {
 
 main {
     flex: 1;
+    position: relative;
     padding: 1rem;
     display: flex;
     flex-direction: column;
@@ -42,9 +43,33 @@ main {
 }
 
 #map {
-    flex: 3;
+    height: 100vh;
+    width: 100%;
     border-radius: 8px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.sidebar {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    z-index: 1000;
+    background: white;
+    padding: 15px;
+    border-radius: 5px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    width: 250px;
+}
+
+.username-container {
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eee;
+}
+
+.users-list {
+    max-height: 300px;
+    overflow-y: auto;
 }
 
 #active-users {
@@ -77,12 +102,13 @@ main {
 .controls {
     position: absolute;
     top: 10px;
-    left: 10px;
+    left: 270px;
     z-index: 1000;
     background: white;
-    padding: 10px;
+    padding: 15px;
     border-radius: 5px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    width: 300px;
 }
 
 .input-group {
@@ -136,5 +162,7 @@ footer {
     color: white;
     text-align: center;
     padding: 1rem;
-    margin-top: auto;
+    position: fixed;
+    bottom: 0;
+    width: 100%;
 }

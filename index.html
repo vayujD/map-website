@@ -9,15 +9,15 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <header>
-        <div class="username-container">
-            <input type="text" id="username" placeholder="Enter your username">
-            <button onclick="setUsername()">Set Username</button>
-        </div>
-    </header>
-
     <main>
         <div id="map"></div>
+        <div class="sidebar">
+            <div class="username-container">
+                <input type="text" id="username" placeholder="Enter your username">
+                <button onclick="setUsername()">Set Username</button>
+            </div>
+            <div id="users-list" class="users-list"></div>
+        </div>
         <div class="controls">
             <div class="input-group">
                 <input type="text" id="source" placeholder="Enter source location...">
@@ -33,7 +33,6 @@
                 <button onclick="checkUsers()">Check Users</button>
             </div>
         </div>
-        <div id="users-list" class="users-list"></div>
     </main>
 
     <footer>
