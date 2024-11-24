@@ -3,27 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interactive Map - Real-time Route Sharing</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>Interactive Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <header>
-        <h1>Interactive Map Explorer</h1>
-        <div class="user-controls">
-            <input type="text" id="username" placeholder="Enter your name">
-            <button onclick="setUsername()">Set Name</button>
+        <div class="username-container">
+            <input type="text" id="username" placeholder="Enter your username">
+            <button onclick="setUsername()">Set Username</button>
         </div>
     </header>
-    
+
     <main>
-        <div class="container">
-            <div id="map"></div>
-            <div id="active-users">
-                <h3>Active Routes</h3>
-                <div id="users-list"></div>
-            </div>
-        </div>
+        <div id="map"></div>
         <div class="controls">
             <div class="input-group">
                 <input type="text" id="source" placeholder="Enter source location...">
@@ -34,27 +28,22 @@
                 <button onclick="getCurrentLocation()">Use Current Location</button>
             </div>
             <div class="input-group">
-                <input type="text" id="check-point" placeholder="Enter location to check traffic...">
+                <button onclick="togglePointSelection()" id="select-point-btn">Select Point on Map</button>
                 <input type="datetime-local" id="check-time" placeholder="Select time to check">
-                <button onclick="checkTraffic()">Check Traffic</button>
+                <button onclick="checkUsers()">Check Users</button>
             </div>
         </div>
+        <div id="users-list" class="users-list"></div>
     </main>
 
     <footer>
         <p> 2024 Map Explorer - Real-time Route Sharing</p>
     </footer>
 
-    <!-- Firebase -->
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-database-compat.js"></script>
-    
-    <!-- Leaflet and Routing -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
-    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-    
-    <!-- Our Scripts -->
     <script src="firebase-config.js"></script>
     <script src="script.js"></script>
 </body>

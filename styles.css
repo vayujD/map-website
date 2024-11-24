@@ -115,11 +115,20 @@ button {
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    transition: background-color 0.3s;
+    transition: background-color 0.3s, color 0.3s;
+    width: 100%;
 }
 
 button:hover {
     background-color: #45a049;
+}
+
+#select-point-btn.selecting {
+    background-color: #dc3545;
+}
+
+#select-point-btn.selecting:hover {
+    background-color: #c82333;
 }
 
 footer {
