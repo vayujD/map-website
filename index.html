@@ -28,6 +28,7 @@
             <div class="input-group">
                 <input type="text" id="source" placeholder="Enter source location...">
                 <input type="text" id="destination" placeholder="Enter destination location...">
+                <input type="datetime-local" id="departure-time" placeholder="Select departure time">
                 <button onclick="findRoute()">Find Route</button>
                 <button onclick="shareRoute()">Share Route</button>
             </div>
@@ -46,6 +47,7 @@
     <!-- Leaflet and Routing -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     
     <!-- Our Scripts -->
     <script src="firebase-config.js"></script>

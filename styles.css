@@ -88,13 +88,18 @@ main {
     flex-wrap: wrap;
 }
 
-input[type="text"] {
+input[type="text"],
+input[type="datetime-local"] {
     flex: 1;
     min-width: 200px;
     padding: 0.5rem;
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 1rem;
+}
+
+input[type="datetime-local"] {
+    min-width: 230px;
 }
 
 button {
