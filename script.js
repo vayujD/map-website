@@ -6,6 +6,8 @@ let currentLocationMarker = null;
 let username = localStorage.getItem('username') || '';
 let userRoutes = {};
 let routePoints = [];
+let heatLayer = null;
+let trafficMarkers = [];
 
 // Initialize Firebase references
 const routesRef = firebase.database().ref('routes');
@@ -277,6 +279,119 @@ async function updateTrafficVisualization(routePoints) {
     } catch (error) {
         console.error('Error updating traffic visualization:', error);
     }
+}
+
+// Function to clear traffic visualization
+function clearTrafficVisualization() {
+    if (heatLayer) {
+        map.removeLayer(heatLayer);
+    }
+    trafficMarkers.forEach(marker => map.removeLayer(marker));
+    trafficMarkers = [];
+}
+
+// Function to check traffic
+async function checkTraffic() {
+    const checkPoint = document.getElementById('check-point').value;
+    const checkTime = new Date(document.getElementById('check-time').value).getTime();
+    
+    if (!checkPoint || !checkTime) {
+        alert('Please enter both location and time to check traffic');
+        return;
+    }
+
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(checkPoint)}`);
+        const data = await response.json();
+        
+        if (data.length === 0) {
+            alert('Location not found');
+            return;
+        }
+
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        
+        // Clear previous visualization
+        clearTrafficVisualization();
+
+        // Get routes within 30 minutes of check time
+        const timeWindow = 30 * 60 * 1000; // 30 minutes in milliseconds
+        
+        // Using the existing Firebase reference
+        routesRef.once('value', (snapshot) => {
+            const routes = snapshot.val() || {};
+            let trafficPoints = [];
+            let nearbyRoutes = 0;
+
+            Object.values(routes).forEach(route => {
+                const routeTime = new Date(route.departureTime).getTime();
+                if (Math.abs(routeTime - checkTime) <= timeWindow) {
+                    route.points.forEach(point => {
+                        const distance = getDistance(lat, lon, point.lat, point.lng);
+                        if (distance <= 1) { // Within 1km
+                            trafficPoints.push([point.lat, point.lng, 1]);
+                            nearbyRoutes++;
+                        }
+                    });
+                }
+            });
+
+            // Create heatmap
+            if (trafficPoints.length > 0) {
+                const intensity = Math.min(nearbyRoutes / 5, 1); // Normalize intensity
+                heatLayer = L.heatLayer(trafficPoints, {
+                    radius: 25,
+                    blur: 15,
+                    maxZoom: 10,
+                    max: 1,
+                    gradient: {
+                        0.0: 'green',
+                        0.2: 'blue',
+                        0.4: 'yellow',
+                        0.6: 'orange',
+                        0.8: 'red'
+                    }
+                }).addTo(map);
+
+                // Add marker at check point
+                const marker = L.marker([lat, lon])
+                    .bindPopup(`Traffic Intensity: ${getTrafficLevel(intensity)}`)
+                    .addTo(map);
+                trafficMarkers.push(marker);
+
+                map.setView([lat, lon], 13);
+            } else {
+                alert('No traffic data available for this location and time');
+            }
+        });
+
+    } catch (error) {
+        console.error('Error checking traffic:', error);
+        alert('Error checking traffic. Please try again.');
+    }
+}
+
+// Function to get traffic level
+function getTrafficLevel(intensity) {
+    if (intensity <= 0.2) return 'Very Low';
+    if (intensity <= 0.4) return 'Low';
+    if (intensity <= 0.6) return 'Moderate';
+    if (intensity <= 0.8) return 'High';
+    return 'Very High';
+}
+
+// Function to get distance between two points
+function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
 }
 
 // Initialize map when page loads

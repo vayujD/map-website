@@ -31,8 +31,13 @@
                 <input type="datetime-local" id="departure-time" placeholder="Select departure time">
                 <button onclick="findRoute()">Find Route</button>
                 <button onclick="shareRoute()">Share Route</button>
+                <button onclick="getCurrentLocation()">Use Current Location</button>
             </div>
-            <button onclick="getCurrentLocation()">Get My Location</button>
+            <div class="input-group">
+                <input type="text" id="check-point" placeholder="Enter location to check traffic...">
+                <input type="datetime-local" id="check-time" placeholder="Select time to check">
+                <button onclick="checkTraffic()">Check Traffic</button>
+            </div>
         </div>
     </main>
 
