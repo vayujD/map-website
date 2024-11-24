@@ -20,10 +20,39 @@ const TRAFFIC_LEVELS = {
     VERY_HIGH: { max: 1.0, color: '#ff0000', label: 'Severe Traffic' }       // Red
 };
 
+// Initialize map
+function initMap() {
+    map = L.map('map').setView([0, 0], 2);
+    
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: ' OpenStreetMap contributors'
+    }).addTo(map);
+    
+    // Initialize empty heatmap layer
+    heatmapLayer = L.heatLayer([], {
+        radius: 25,
+        blur: 15,
+        maxZoom: 10,
+        max: 1.0,
+        gradient: Object.fromEntries(
+            Object.entries(TRAFFIC_LEVELS).map(([_, data]) => [data.max, data.color])
+        )
+    }).addTo(map);
+    
+    // Add traffic legend
+    addTrafficLegend().addTo(map);
+    
+    // Get user location
+    getCurrentLocation();
+    
+    // Load initial traffic data
+    loadTrafficData();
+}
+
 // Function to create traffic legend
 function addTrafficLegend() {
     const legend = L.control({ position: 'bottomright' });
-
+    
     legend.onAdd = function() {
         const div = L.DomUtil.create('div', 'traffic-legend');
         div.style.backgroundColor = 'white';
@@ -45,51 +74,208 @@ function addTrafficLegend() {
         div.innerHTML = content;
         return div;
     };
-
+    
     return legend;
 }
 
-// Function to get traffic level based on intensity
-function getTrafficLevel(intensity) {
-    return Object.entries(TRAFFIC_LEVELS).find(([_, data]) => intensity <= data.max)[0];
-}
-
-// Initialize map
-function initMap() {
-    map = L.map('map').setView([0, 0], 2);
-    
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: ' OpenStreetMap contributors'
-    }).addTo(map);
-    
-    // Initialize empty heatmap layer
-    heatmapLayer = L.heatLayer([], {
-        radius: 25,
-        blur: 15,
-        maxZoom: 10,
-        max: 1.0,
-        gradient: {0.4: 'blue', 0.6: 'yellow', 0.8: 'orange', 1: 'red'}
-    }).addTo(map);
-    
-    // Get user location
-    getCurrentLocation();
-    
-    // Initialize search functionality
-    initializeSearch();
-}
-
-// Initialize search functionality
-function initializeSearch() {
-    const searchInput = document.getElementById('search');
-    if (searchInput) {
-        searchInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                const query = searchInput.value.trim();
-                if (query) {
-                    searchLocation(query);
-                }
+// Function to load and display traffic data
+async function loadTrafficData() {
+    try {
+        const snapshot = await trafficRef.once('value');
+        const trafficData = snapshot.val() || {};
+        
+        const heatmapData = [];
+        const currentTime = Date.now();
+        const timeWindow = 30 * 60 * 1000; // 30 minutes
+        
+        Object.values(trafficData).forEach(point => {
+            const timeDiff = Math.abs(point.timestamp - currentTime);
+            if (timeDiff <= timeWindow) {
+                heatmapData.push([point.lat, point.lng, 0.5]); // Default intensity
             }
         });
+        
+        if (heatmapData.length > 0) {
+            heatmapLayer.setLatLngs(heatmapData);
+        }
+    } catch (error) {
+        console.error('Error loading traffic data:', error);
+    }
+}
+
+// Function to find route between source and destination
+async function findRoute() {
+    try {
+        const sourceInput = document.getElementById('source').value;
+        const destInput = document.getElementById('destination').value;
+        const departureTime = document.getElementById('departure-time').value;
+        
+        if (!sourceInput || !destInput) {
+            alert('Please enter source and destination locations');
+            return;
+        }
+        
+        // Get coordinates for both locations
+        const sourceCoords = await getCoordinates(sourceInput);
+        const destCoords = await getCoordinates(destInput);
+        
+        // Remove existing route if any
+        if (routingControl) {
+            map.removeControl(routingControl);
+        }
+        
+        // Create new route
+        routingControl = L.Routing.control({
+            waypoints: [
+                L.latLng(sourceCoords[0], sourceCoords[1]),
+                L.latLng(destCoords[0], destCoords[1])
+            ],
+            routeWhileDragging: true,
+            lineOptions: {
+                styles: [{ color: '#3388ff', weight: 6 }]
+            },
+            show: false,
+            addWaypoints: false,
+            draggableWaypoints: false,
+            fitSelectedRoutes: true
+        }).addTo(map);
+        
+        // Wait for route calculation
+        routingControl.on('routesfound', async function(e) {
+            console.log('Route found:', e);
+            const route = e.routes[0];
+            
+            // Generate route points
+            const points = generateRoutePoints(route);
+            console.log('Generated points:', points);
+            
+            // Save route points to Firebase
+            await saveRoutePoints(points, departureTime);
+            
+            // Update traffic visualization
+            await updateTrafficVisualization(points);
+        });
+        
+    } catch (error) {
+        console.error('Error finding route:', error);
+        alert('Error finding route: ' + error.message);
+    }
+}
+
+// Function to generate route points
+function generateRoutePoints(route) {
+    const points = [];
+    const coordinates = route.coordinates;
+    
+    // Sample points along the route
+    for (let i = 0; i < coordinates.length; i += Math.max(1, Math.floor(coordinates.length / 20))) {
+        points.push({
+            lat: coordinates[i].lat,
+            lng: coordinates[i].lng
+        });
+    }
+    
+    return points;
+}
+
+// Function to save route points to Firebase
+async function saveRoutePoints(points, departureTime) {
+    if (!username) {
+        alert('Please set your username first');
+        return;
+    }
+    
+    const departure = new Date(departureTime).getTime();
+    const pointsWithTime = points.map((point, index) => ({
+        ...point,
+        timestamp: departure + (index * 300000), // 5 minutes between points
+        username: username
+    }));
+    
+    // Save each point to traffic_data
+    for (const point of pointsWithTime) {
+        await trafficRef.push(point);
+    }
+}
+
+// Function to update traffic visualization
+async function updateTrafficVisualization(routePoints) {
+    try {
+        const snapshot = await trafficRef.once('value');
+        const trafficData = snapshot.val() || {};
+        
+        const heatmapData = [];
+        const markers = [];
+        
+        // Process each route point
+        for (const point of routePoints) {
+            let nearbyPoints = 0;
+            const timeWindow = 30 * 60 * 1000; // 30 minutes
+            const searchRadius = 0.5; // 500m
+            
+            // Count nearby points
+            Object.values(trafficData).forEach(data => {
+                const distance = calculateDistance(
+                    point.lat, point.lng,
+                    data.lat, data.lng
+                );
+                
+                if (distance <= searchRadius) {
+                    nearbyPoints++;
+                }
+            });
+            
+            // Calculate intensity
+            const intensity = Math.min(nearbyPoints / 10, 1);
+            
+            // Add to heatmap
+            heatmapData.push([point.lat, point.lng, intensity]);
+            
+            // Add marker for significant traffic
+            if (intensity >= 0.4) {
+                const level = Object.entries(TRAFFIC_LEVELS)
+                    .find(([_, data]) => intensity <= data.max)[0];
+                const { color, label } = TRAFFIC_LEVELS[level];
+                
+                const marker = L.circleMarker([point.lat, point.lng], {
+                    radius: 8,
+                    fillColor: color,
+                    color: '#000',
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                });
+                
+                marker.bindPopup(`
+                    <strong>${label}</strong><br>
+                    Nearby Routes: ${nearbyPoints}<br>
+                    Time: ${new Date(point.timestamp).toLocaleTimeString()}
+                `);
+                
+                markers.push(marker);
+            }
+        }
+        
+        // Update heatmap
+        if (heatmapLayer) {
+            map.removeLayer(heatmapLayer);
+        }
+        
+        heatmapLayer = L.heatLayer(heatmapData, {
+            radius: 25,
+            blur: 15,
+            maxZoom: 10,
+            max: 1.0,
+            gradient: Object.fromEntries(
+                Object.entries(TRAFFIC_LEVELS).map(([_, data]) => [data.max, data.color])
+            )
+        }).addTo(map);
+        
+        // Add markers
+        const markerGroup = L.layerGroup(markers).addTo(map);
+        
+    } catch (error) {
+        console.error('Error updating traffic visualization:', error);
     }
 }
 
@@ -122,93 +308,6 @@ async function getCoordinates(locationName) {
     }
 }
 
-// Function to calculate route points at regular intervals
-function getRoutePoints(route) {
-    const points = [];
-    if (!route || !route.coordinates) {
-        console.error('Invalid route object:', route);
-        return points;
-    }
-
-    // Extract coordinates from the route
-    let coordinates = [];
-    if (Array.isArray(route.coordinates)) {
-        coordinates = route.coordinates;
-    } else if (route.waypoints) {
-        coordinates = route.waypoints.map(wp => ({
-            lat: wp.latLng.lat,
-            lng: wp.latLng.lng
-        }));
-    }
-    
-    // Sample points along the route
-    for (let i = 0; i < coordinates.length; i++) {
-        const coord = coordinates[i];
-        points.push({
-            lat: coord.lat || coord.latitude || 0,
-            lng: coord.lng || coord.longitude || 0,
-            timestamp: estimateTimestamp(i, coordinates.length)
-        });
-    }
-    
-    return points;
-}
-
-// Function to estimate timestamp for each point
-function estimateTimestamp(pointIndex, totalPoints) {
-    const departureTimeInput = document.getElementById('departure-time');
-    if (!departureTimeInput || !departureTimeInput.value) {
-        return Date.now() + (pointIndex * 300000); // Default: current time + 5 min intervals
-    }
-    
-    const departureTime = new Date(departureTimeInput.value).getTime();
-    const averageSpeed = 50; // km/h
-    const estimatedDuration = totalPoints * (3600 / averageSpeed); // seconds
-    return departureTime + (pointIndex * (estimatedDuration / totalPoints) * 1000);
-}
-
-// Function to predict traffic intensity at a point
-async function predictTrafficIntensity(point, timestamp) {
-    try {
-        console.log('Predicting traffic for point:', point, 'at time:', new Date(timestamp));
-        
-        // Get all traffic data points within the time window
-        const snapshot = await trafficRef.once('value');
-        const trafficData = snapshot.val() || {};
-        
-        let nearbyPoints = 0;
-        const timeWindow = 30 * 60 * 1000; // 30 minutes in milliseconds
-        const distanceThreshold = 0.5; // 0.5 km radius
-        
-        Object.values(trafficData).forEach(data => {
-            // Check if point is within time window
-            const timeDiff = Math.abs(data.timestamp - timestamp);
-            if (timeDiff <= timeWindow) {
-                // Calculate distance between points
-                const distance = calculateDistance(
-                    point.lat, point.lng,
-                    data.lat, data.lng
-                );
-                
-                // If within threshold, increment counter
-                if (distance <= distanceThreshold) {
-                    nearbyPoints++;
-                }
-            }
-        });
-        
-        console.log('Found nearby points:', nearbyPoints);
-        
-        // Calculate intensity (0-10 scale)
-        const intensity = Math.min(nearbyPoints, 10);
-        return intensity;
-        
-    } catch (error) {
-        console.error('Error predicting traffic:', error);
-        return 0;
-    }
-}
-
 // Function to calculate distance between two points
 function calculateDistance(point1, point2) {
     const R = 6371; // Earth's radius in km
@@ -221,184 +320,33 @@ function calculateDistance(point1, point2) {
     return R * c;
 }
 
-// Function to update heatmap
-async function updateHeatmap(route) {
-    try {
-        console.log('Updating heatmap with route:', route);
-        
-        // Get route coordinates
-        let coordinates = [];
-        if (route.coordinates) {
-            coordinates = route.coordinates;
-        } else if (route.waypoints) {
-            coordinates = route.waypoints.map(wp => ({
-                lat: wp.latLng.lat,
-                lng: wp.latLng.lng
-            }));
-        }
-        
-        if (coordinates.length === 0) {
-            console.warn('No coordinates found in route');
-            return;
-        }
-        
-        // Generate points along the route
-        const points = [];
-        for (let i = 0; i < coordinates.length; i++) {
-            points.push({
-                lat: coordinates[i].lat,
-                lng: coordinates[i].lng,
-                timestamp: estimateTimestamp(i, coordinates.length)
-            });
-        }
-        
-        console.log('Generated route points:', points);
-        
-        // Get traffic data from Firebase
-        const snapshot = await trafficRef.once('value');
-        const trafficData = snapshot.val() || {};
-        
-        // Process each point
-        const heatmapData = [];
-        const trafficMarkers = [];
-        
-        for (const point of points) {
-            let nearbyPoints = 0;
-            const timeWindow = 30 * 60 * 1000; // 30 minutes window
-            const searchRadius = 0.5; // 500m radius
+// Function to get the user's current location
+function getCurrentLocation() {
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(function(position) {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
             
-            Object.values(trafficData).forEach(data => {
-                const timeDiff = Math.abs(data.timestamp - point.timestamp);
-                if (timeDiff <= timeWindow) {
-                    const distance = calculateDistance(
-                        point.lat, point.lng,
-                        data.lat, data.lng
-                    );
-                    if (distance <= searchRadius) {
-                        nearbyPoints++;
-                    }
-                }
-            });
-            
-            // Normalize intensity (0-1 scale)
-            const intensity = Math.min(nearbyPoints / 10, 1);
-            
-            if (intensity > 0) {
-                // Add to heatmap data
-                heatmapData.push([point.lat, point.lng, intensity]);
-                
-                // Create marker for significant traffic points
-                if (intensity >= 0.4) {
-                    const level = getTrafficLevel(intensity);
-                    const { color, label } = TRAFFIC_LEVELS[level];
-                    
-                    const marker = L.circleMarker([point.lat, point.lng], {
-                        radius: 8,
-                        fillColor: color,
-                        color: '#000',
-                        weight: 1,
-                        opacity: 1,
-                        fillOpacity: 0.8
-                    });
-                    
-                    marker.bindPopup(`
-                        <strong>${label}</strong><br>
-                        Nearby Routes: ${nearbyPoints}<br>
-                        Time: ${new Date(point.timestamp).toLocaleTimeString()}
-                    `);
-                    
-                    trafficMarkers.push(marker);
-                }
+            // Remove existing marker if any
+            if (currentLocationMarker) {
+                map.removeLayer(currentLocationMarker);
             }
-        }
-        
-        console.log('Generated heatmap data:', heatmapData);
-        
-        // Update heatmap layer
-        if (heatmapLayer) {
-            map.removeLayer(heatmapLayer);
-        }
-        
-        // Remove existing traffic markers
-        if (window.trafficMarkerGroup) {
-            map.removeLayer(window.trafficMarkerGroup);
-        }
-        
-        // Add new heatmap
-        heatmapLayer = L.heatLayer(heatmapData, {
-            radius: 25,
-            blur: 15,
-            maxZoom: 10,
-            max: 1.0,
-            gradient: Object.fromEntries(
-                Object.entries(TRAFFIC_LEVELS).map(([_, data]) => [data.max, data.color])
-            )
-        }).addTo(map);
-        
-        // Add traffic markers
-        window.trafficMarkerGroup = L.layerGroup(trafficMarkers).addTo(map);
-        
-        // Add legend if not already added
-        if (!window.trafficLegend) {
-            window.trafficLegend = addTrafficLegend().addTo(map);
-        }
-        
-    } catch (error) {
-        console.error('Error updating heatmap:', error);
-    }
-}
-
-// Function to find route between source and destination
-async function findRoute() {
-    try {
-        const sourceInput = document.getElementById('source').value;
-        const destInput = document.getElementById('destination').value;
-        const departureTime = document.getElementById('departure-time').value;
-
-        if (!sourceInput || !destInput) {
-            alert('Please enter source and destination locations');
-            return;
-        }
-
-        // Get coordinates for both locations
-        const sourceCoords = await getCoordinates(sourceInput);
-        const destCoords = await getCoordinates(destInput);
-
-        // Remove existing route if any
-        if (routingControl) {
-            map.removeControl(routingControl);
-        }
-
-        // Create new route
-        routingControl = L.Routing.control({
-            waypoints: [
-                L.latLng(sourceCoords[0], sourceCoords[1]),
-                L.latLng(destCoords[0], destCoords[1])
-            ],
-            routeWhileDragging: true,
-            lineOptions: {
-                styles: [{ color: '#3388ff', weight: 6 }]
-            },
-            show: false,
-            addWaypoints: false,
-            draggableWaypoints: false,
-            fitSelectedRoutes: true
-        }).addTo(map);
-
-        // Wait for route calculation
-        routingControl.on('routesfound', function(e) {
-            console.log('Routes found:', e);
-            const routes = e.routes;
-            if (routes && routes.length > 0) {
-                const route = routes[0];
-                console.log('Processing route:', route);
-                updateHeatmap(route);
-            }
+            
+            // Add new marker
+            currentLocationMarker = L.marker([lat, lng]).addTo(map);
+            currentLocationMarker.bindPopup('Your Location').openPopup();
+            
+            // Center map on location
+            map.setView([lat, lng], 13);
+            
+            // Update source input with coordinates
+            document.getElementById('source').value = `${lat}, ${lng}`;
+        }, function(error) {
+            console.error('Error getting location:', error);
+            alert('Unable to get your location. Please enter it manually.');
         });
-
-    } catch (error) {
-        console.error('Error finding route:', error);
-        alert('Error finding route: ' + error.message);
+    } else {
+        alert('Geolocation is not supported by your browser');
     }
 }
 
@@ -437,7 +385,7 @@ function shareRoute() {
         // Save route points for traffic prediction
         const router = routingControl.getRouter();
         if (router && router.route && router.route[0]) {
-            const points = getRoutePoints(router.route[0]);
+            const points = generateRoutePoints(router.route[0]);
             
             points.forEach((point) => {
                 trafficRef.push({
@@ -455,55 +403,6 @@ function shareRoute() {
         alert('Error sharing route: ' + error.message);
     }
 }
-
-// Function to get the user's current location
-function getCurrentLocation() {
-    if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(function(position) {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            
-            // Remove existing marker if any
-            if (currentLocationMarker) {
-                map.removeLayer(currentLocationMarker);
-            }
-            
-            // Add new marker
-            currentLocationMarker = L.marker([lat, lng]).addTo(map);
-            currentLocationMarker.bindPopup('Your Location').openPopup();
-            
-            // Center map on location
-            map.setView([lat, lng], 13);
-            
-            // Update source input with coordinates
-            document.getElementById('source').value = `${lat}, ${lng}`;
-        }, function(error) {
-            console.error('Error getting location:', error);
-            alert('Unable to get your location. Please enter it manually.');
-        });
-    } else {
-        alert('Geolocation is not supported by your browser');
-    }
-}
-
-// Initialize the map with existing traffic data
-trafficRef.once('value', (snapshot) => {
-    const heatmapData = [];
-    snapshot.forEach((childSnapshot) => {
-        const data = childSnapshot.val();
-        heatmapData.push([data.lat, data.lng, 1]);
-    });
-    
-    if (heatmapData.length > 0) {
-        heatmapLayer = L.heatLayer(heatmapData, {
-            radius: 25,
-            blur: 15,
-            maxZoom: 10,
-            max: 10,
-            gradient: {0.4: 'blue', 0.6: 'yellow', 0.8: 'orange', 1: 'red'}
-        }).addTo(map);
-    }
-});
 
 // Function to display other users' routes
 function displayUserRoute(userId, routeData) {
