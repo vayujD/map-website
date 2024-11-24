@@ -7,6 +7,8 @@ let userRoutes = {};
 let selectedPoint = null;
 let selectedPointMarker = null;
 let isSelectingPoint = false;
+let countMarker = null;
+let searchRadiusCircle = null;
 
 // Initialize Firebase references
 const routesRef = firebase.database().ref('routes');
@@ -54,65 +56,92 @@ function onMapClick(e) {
     togglePointSelection();
 }
 
-// Check number of users passing through selected point
+// Check users passing through a point
 async function checkUsers() {
     if (!selectedPoint) {
         alert('Please select a point on the map first');
         return;
     }
 
-    const checkTime = new Date(document.getElementById('check-time').value).getTime();
+    const checkTime = document.getElementById('check-time').value;
     if (!checkTime) {
         alert('Please select a time to check');
         return;
     }
 
+    const selectedDateTime = new Date(checkTime);
+    const timeWindow = 30 * 60 * 1000; // 30 minutes in milliseconds
+    const searchRadius = 50; // 50 meters
+
     try {
-        // Get routes within 30 minutes of check time
-        const timeWindow = 30 * 60 * 1000; // 30 minutes in milliseconds
-        
-        routesRef.once('value', (snapshot) => {
-            const routes = snapshot.val() || {};
-            let usernames = new Set();
-
-            Object.entries(routes).forEach(([key, route]) => {
-                const routeTime = new Date(route.departureTime).getTime();
-                if (Math.abs(routeTime - checkTime) <= timeWindow) {
-                    route.points.forEach(point => {
-                        const distance = getDistance(
-                            selectedPoint.lat, 
-                            selectedPoint.lng, 
-                            point.lat, 
-                            point.lng
-                        );
-                        if (distance <= 0.5) { // Within 500m
-                            usernames.add(route.username);
-                        }
-                    });
-                }
-            });
-
-            const userCount = usernames.size;
+        // Get all routes from Firebase
+        const snapshot = await routesRef.once('value');
+        const routes = [];
+        snapshot.forEach(childSnapshot => {
+            const route = childSnapshot.val();
+            const routeTime = new Date(route.departureTime);
             
-            // Update marker popup with user count
-            if (selectedPointMarker) {
-                map.removeLayer(selectedPointMarker);
-            }
-            
-            selectedPointMarker = L.marker(selectedPoint)
-                .bindPopup(
-                    `<strong>Users passing through:</strong> ${userCount}<br>` +
-                    `<strong>Time Window:</strong> ±30 minutes<br>` +
-                    `<strong>Search Radius:</strong> 500m`
-                )
-                .addTo(map);
-            
-            selectedPointMarker.openPopup();
-
-            if (userCount === 0) {
-                alert('No users found passing through this point at the selected time');
+            // Check if route is within the time window
+            if (Math.abs(routeTime - selectedDateTime) <= timeWindow) {
+                routes.push(route);
             }
         });
+
+        // Count users passing through the selected point
+        let userCount = 0;
+        const usersFound = new Set();
+
+        routes.forEach(route => {
+            // Check if any point in the route is within the search radius
+            const isNearby = route.points.some(point => {
+                const distance = calculateDistance(
+                    selectedPoint.lat,
+                    selectedPoint.lng,
+                    point.lat,
+                    point.lng
+                );
+                return distance <= searchRadius;
+            });
+
+            if (isNearby && !usersFound.has(route.username)) {
+                userCount++;
+                usersFound.add(route.username);
+            }
+        });
+
+        // Create or update marker with user count
+        if (countMarker) {
+            map.removeLayer(countMarker);
+        }
+
+        countMarker = L.marker([selectedPoint.lat, selectedPoint.lng], {
+            icon: L.divIcon({
+                className: 'count-marker',
+                html: `<div class="user-count">${userCount}</div>`,
+                iconSize: [40, 40]
+            })
+        }).addTo(map);
+
+        // Show users in a popup
+        const userList = Array.from(usersFound).join(', ');
+        const timeRange = `${new Date(selectedDateTime - timeWindow).toLocaleTimeString()} - ${new Date(selectedDateTime + timeWindow).toLocaleTimeString()}`;
+        
+        countMarker.bindPopup(`
+            <strong>${userCount} users</strong> passing within ${searchRadius}m<br>
+            Time window: ${timeRange}<br>
+            ${userCount > 0 ? `<small>Users: ${userList}</small>` : ''}
+        `).openPopup();
+
+        // Add circle to show search radius
+        if (searchRadiusCircle) {
+            map.removeLayer(searchRadiusCircle);
+        }
+        searchRadiusCircle = L.circle([selectedPoint.lat, selectedPoint.lng], {
+            radius: searchRadius,
+            color: '#4CAF50',
+            fillColor: '#4CAF50',
+            fillOpacity: 0.1
+        }).addTo(map);
 
     } catch (error) {
         console.error('Error checking users:', error);
@@ -120,17 +149,20 @@ async function checkUsers() {
     }
 }
 
-// Calculate distance between two points in kilometers
-function getDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Earth's radius in km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = 
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-        Math.sin(dLon/2) * Math.sin(dLon/2);
+// Calculate distance between two points in meters using Haversine formula
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = lat1 * Math.PI / 180;
+    const φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180;
+    const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
+
+    return R * c; // Distance in meters
 }
 
 // Get coordinates from location name
@@ -184,8 +216,83 @@ async function findRoute() {
     }
 }
 
+// Toggle routes list panel
+function toggleRoutesList() {
+    const panel = document.getElementById('routes-panel');
+    const btn = document.getElementById('routes-btn');
+    const isHidden = panel.classList.contains('hidden');
+    
+    if (isHidden) {
+        panel.classList.remove('hidden');
+        btn.textContent = 'Hide Routes';
+        loadAllRoutes();
+    } else {
+        panel.classList.add('hidden');
+        btn.textContent = 'Show All Routes';
+    }
+}
+
+// Load and display all routes
+function loadAllRoutes() {
+    const container = document.getElementById('routes-container');
+    const filter = document.getElementById('route-filter').value;
+    
+    routesRef.orderByChild('timestamp').limitToLast(50).once('value', (snapshot) => {
+        container.innerHTML = '';
+        const routes = [];
+        
+        snapshot.forEach((childSnapshot) => {
+            const route = childSnapshot.val();
+            route.id = childSnapshot.key;
+            routes.push(route);
+        });
+        
+        routes.reverse().forEach(route => {
+            if (filter === 'my' && route.username !== username) {
+                return;
+            }
+            
+            const routeDiv = document.createElement('div');
+            routeDiv.className = 'route-item';
+            
+            const date = new Date(route.departureTime);
+            routeDiv.innerHTML = `
+                <strong>${route.username}</strong><br>
+                From: ${route.source}<br>
+                To: ${route.destination}<br>
+                Time: ${date.toLocaleString()}
+            `;
+            
+            routeDiv.onclick = () => showRouteOnMap(route);
+            container.appendChild(routeDiv);
+        });
+    });
+}
+
+// Show selected route on map
+function showRouteOnMap(route) {
+    if (routingControl) {
+        map.removeControl(routingControl);
+    }
+    
+    routingControl = L.Routing.control({
+        waypoints: [
+            L.latLng(route.sourceCoords.lat, route.sourceCoords.lng),
+            L.latLng(route.destCoords.lat, route.destCoords.lng)
+        ],
+        routeWhileDragging: false,
+        addWaypoints: false,
+        draggableWaypoints: false
+    }).addTo(map);
+    
+    map.fitBounds([
+        [route.sourceCoords.lat, route.sourceCoords.lng],
+        [route.destCoords.lat, route.destCoords.lng]
+    ]);
+}
+
 // Share route with other users
-function shareRoute() {
+async function shareRoute() {
     if (!username) {
         alert('Please set your username first');
         return;
@@ -202,22 +309,46 @@ function shareRoute() {
         return;
     }
 
-    const route = routingControl._selectedRoute;
-    const points = route.coordinates.map(coord => ({
-        lat: coord.lat,
-        lng: coord.lng
-    }));
+    const source = document.getElementById('source').value;
+    const destination = document.getElementById('destination').value;
+    
+    try {
+        const sourceCoords = await getCoordinates(source);
+        const destCoords = await getCoordinates(destination);
+        
+        const route = routingControl._selectedRoute;
+        const points = route.coordinates.map(coord => ({
+            lat: coord.lat,
+            lng: coord.lng
+        }));
 
-    const routeData = {
-        username: username,
-        departureTime: departureTime,
-        points: points
-    };
+        const routeData = {
+            username: username,
+            departureTime: departureTime,
+            timestamp: Date.now(),
+            source: source,
+            destination: destination,
+            sourceCoords: sourceCoords,
+            destCoords: destCoords,
+            points: points
+        };
 
-    const newRouteRef = routesRef.push();
-    newRouteRef.set(routeData);
-    alert('Route shared successfully!');
+        const newRouteRef = routesRef.push();
+        newRouteRef.set(routeData);
+        alert('Route shared successfully!');
+        
+        // Refresh routes list if it's open
+        if (!document.getElementById('routes-panel').classList.contains('hidden')) {
+            loadAllRoutes();
+        }
+    } catch (error) {
+        console.error('Error sharing route:', error);
+        alert('Error sharing route. Please try again.');
+    }
 }
+
+// Add filter change handler
+document.getElementById('route-filter').addEventListener('change', loadAllRoutes);
 
 // Get current location
 function getCurrentLocation() {

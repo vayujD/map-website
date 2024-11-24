@@ -11,26 +11,44 @@
 <body>
     <main>
         <div id="map"></div>
-        <div class="sidebar">
+        <div class="top-controls">
             <div class="username-container">
                 <input type="text" id="username" placeholder="Enter your username">
                 <button onclick="setUsername()">Set Username</button>
             </div>
-            <div id="users-list" class="users-list"></div>
+            <div class="routes-list">
+                <button onclick="toggleRoutesList()" id="routes-btn">Show All Routes</button>
+                <div id="routes-panel" class="hidden">
+                    <div class="routes-header">
+                        <h3>Recent Routes</h3>
+                        <select id="route-filter">
+                            <option value="all">All Routes</option>
+                            <option value="my">My Routes</option>
+                        </select>
+                    </div>
+                    <div id="routes-container"></div>
+                </div>
+            </div>
         </div>
-        <div class="controls">
+        <div class="bottom-controls">
             <div class="input-group">
-                <input type="text" id="source" placeholder="Enter source location...">
-                <input type="text" id="destination" placeholder="Enter destination location...">
-                <input type="datetime-local" id="departure-time" placeholder="Select departure time">
-                <button onclick="findRoute()">Find Route</button>
-                <button onclick="shareRoute()">Share Route</button>
-                <button onclick="getCurrentLocation()">Use Current Location</button>
+                <div class="location-inputs">
+                    <input type="text" id="source" placeholder="Enter source location...">
+                    <input type="text" id="destination" placeholder="Enter destination location...">
+                    <input type="datetime-local" id="departure-time" placeholder="Select departure time">
+                </div>
+                <div class="action-buttons">
+                    <button onclick="findRoute()">Find Route</button>
+                    <button onclick="shareRoute()">Share Route</button>
+                    <button onclick="getCurrentLocation()">Use Current Location</button>
+                </div>
             </div>
             <div class="input-group">
-                <button onclick="togglePointSelection()" id="select-point-btn">Select Point on Map</button>
-                <input type="datetime-local" id="check-time" placeholder="Select time to check">
-                <button onclick="checkUsers()">Check Users</button>
+                <div class="check-point-controls">
+                    <button onclick="togglePointSelection()" id="select-point-btn">Select Point on Map</button>
+                    <input type="datetime-local" id="check-time" placeholder="Select time to check">
+                    <button onclick="checkUsers()">Check Users</button>
+                </div>
             </div>
         </div>
     </main>
