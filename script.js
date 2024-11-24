@@ -11,6 +11,49 @@ let routePoints = [];
 const routesRef = firebase.database().ref('routes');
 const trafficRef = firebase.database().ref('traffic_data');
 
+// Traffic intensity levels
+const TRAFFIC_LEVELS = {
+    VERY_LOW: { max: 0.2, color: '#00ff00', label: 'Very Light Traffic' },    // Green
+    LOW: { max: 0.4, color: '#0000ff', label: 'Light Traffic' },             // Blue
+    MODERATE: { max: 0.6, color: '#ffff00', label: 'Moderate Traffic' },     // Yellow
+    HIGH: { max: 0.8, color: '#ffa500', label: 'Heavy Traffic' },            // Orange
+    VERY_HIGH: { max: 1.0, color: '#ff0000', label: 'Severe Traffic' }       // Red
+};
+
+// Function to create traffic legend
+function addTrafficLegend() {
+    const legend = L.control({ position: 'bottomright' });
+
+    legend.onAdd = function() {
+        const div = L.DomUtil.create('div', 'traffic-legend');
+        div.style.backgroundColor = 'white';
+        div.style.padding = '10px';
+        div.style.borderRadius = '5px';
+        div.style.border = '1px solid #ccc';
+        
+        let content = '<h4 style="margin: 0 0 5px 0">Traffic Conditions</h4>';
+        
+        Object.entries(TRAFFIC_LEVELS).forEach(([level, data]) => {
+            content += `
+                <div style="display: flex; align-items: center; margin: 5px 0;">
+                    <div style="width: 20px; height: 20px; background-color: ${data.color}; margin-right: 5px;"></div>
+                    <span>${data.label}</span>
+                </div>
+            `;
+        });
+        
+        div.innerHTML = content;
+        return div;
+    };
+
+    return legend;
+}
+
+// Function to get traffic level based on intensity
+function getTrafficLevel(intensity) {
+    return Object.entries(TRAFFIC_LEVELS).find(([_, data]) => intensity <= data.max)[0];
+}
+
 // Initialize map
 function initMap() {
     map = L.map('map').setView([0, 0], 2);
@@ -217,28 +260,55 @@ async function updateHeatmap(route) {
         
         // Process each point
         const heatmapData = [];
+        const trafficMarkers = [];
+        
         for (const point of points) {
-            let intensity = 0;
+            let nearbyPoints = 0;
+            const timeWindow = 30 * 60 * 1000; // 30 minutes window
+            const searchRadius = 0.5; // 500m radius
             
-            // Count nearby points
             Object.values(trafficData).forEach(data => {
                 const timeDiff = Math.abs(data.timestamp - point.timestamp);
-                if (timeDiff <= 30 * 60 * 1000) { // 30 minutes window
+                if (timeDiff <= timeWindow) {
                     const distance = calculateDistance(
                         point.lat, point.lng,
                         data.lat, data.lng
                     );
-                    if (distance <= 0.5) { // 500m radius
-                        intensity++;
+                    if (distance <= searchRadius) {
+                        nearbyPoints++;
                     }
                 }
             });
             
             // Normalize intensity (0-1 scale)
-            intensity = Math.min(intensity / 10, 1);
+            const intensity = Math.min(nearbyPoints / 10, 1);
             
             if (intensity > 0) {
+                // Add to heatmap data
                 heatmapData.push([point.lat, point.lng, intensity]);
+                
+                // Create marker for significant traffic points
+                if (intensity >= 0.4) {
+                    const level = getTrafficLevel(intensity);
+                    const { color, label } = TRAFFIC_LEVELS[level];
+                    
+                    const marker = L.circleMarker([point.lat, point.lng], {
+                        radius: 8,
+                        fillColor: color,
+                        color: '#000',
+                        weight: 1,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    });
+                    
+                    marker.bindPopup(`
+                        <strong>${label}</strong><br>
+                        Nearby Routes: ${nearbyPoints}<br>
+                        Time: ${new Date(point.timestamp).toLocaleTimeString()}
+                    `);
+                    
+                    trafficMarkers.push(marker);
+                }
             }
         }
         
@@ -249,13 +319,29 @@ async function updateHeatmap(route) {
             map.removeLayer(heatmapLayer);
         }
         
+        // Remove existing traffic markers
+        if (window.trafficMarkerGroup) {
+            map.removeLayer(window.trafficMarkerGroup);
+        }
+        
+        // Add new heatmap
         heatmapLayer = L.heatLayer(heatmapData, {
             radius: 25,
             blur: 15,
             maxZoom: 10,
             max: 1.0,
-            gradient: {0.4: 'blue', 0.6: 'yellow', 0.8: 'orange', 1: 'red'}
+            gradient: Object.fromEntries(
+                Object.entries(TRAFFIC_LEVELS).map(([_, data]) => [data.max, data.color])
+            )
         }).addTo(map);
+        
+        // Add traffic markers
+        window.trafficMarkerGroup = L.layerGroup(trafficMarkers).addTo(map);
+        
+        // Add legend if not already added
+        if (!window.trafficLegend) {
+            window.trafficLegend = addTrafficLegend().addTo(map);
+        }
         
     } catch (error) {
         console.error('Error updating heatmap:', error);
